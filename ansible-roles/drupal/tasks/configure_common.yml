@@ -1,0 +1,77 @@
+---
+- name: Install Drush
+  shell: 'composer global require drush/drush:9.*'
+  environment:
+    COMPOSER_HOME: '/usr/share/composer'
+  when: ansible_distribution_release == 'xenial' or ansible_distribution_release == 'bionic'
+
+- name: Install Drush
+  shell: 'composer global require drush/drush:8.*'
+  environment:
+    COMPOSER_HOME: '/usr/share/composer'
+  when: ansible_distribution_release == 'trusty' or ansible_distribution_release == 'bionic' or ansible_distribution == 'CentOS'
+
+- name: Link Drush to /usr/local/bin/drush
+  file:
+    src: '/usr/share/composer/vendor/drush/drush/drush'
+    path: '/usr/local/bin/drush'
+    state: link
+
+- name: Install php-mbstring
+  apt: name="{{item}}" state=installed update_cache=yes
+  with_items:
+       - php-zip
+       - php-mbstring
+       - mariadb-client
+       - python-mysqldb
+  when: ansible_distribution_release == 'xenial' or ansible_distribution_release == 'bionic'
+
+- name: Download Drupal
+  shell: composer create-project drupal-composer/drupal-project:8.x-dev httpdocs --stability dev --no-interaction
+  args:
+    chdir: '{{ nginx_vhost_root }}/{{ drupal_domain }}'
+  environment:
+    HOME: "/root"
+  when: ansible_distribution_release == 'xenial' or ansible_distribution_release == 'bionic'
+
+- name: Download Drupal
+  shell: composer create-project drupal-composer/drupal-project:7.x-dev httpdocs --stability dev --no-interaction
+  args:
+    chdir: '{{ nginx_vhost_root }}/{{ drupal_domain }}'
+  environment:
+    HOME: "/root"
+  when: ansible_distribution_release == 'trusty' or ansible_distribution == 'CentOS'
+
+- name: Install Drupal
+  shell:
+    "drush --yes site-install standard
+    --db-url='mysql://{{ drupal_db_user }}:{{ drupal_db_password }}@{{ drupal_db_host }}/{{ drupal_db_name}}'
+    --site-name={{ drupal_domain }}
+    --account-name={{ drupal_user }}
+    --account-pass={{ drupal_password }}"
+  args:
+    chdir: '{{ nginx_vhost_root }}/{{ drupal_domain }}/httpdocs'
+  environment:
+    HOME: "/root"
+  when: ansible_distribution_release == 'xenial' or ansible_distribution_release == 'bionic'
+
+- name: Install Drupal
+  shell:
+    "drush --yes site-install standard
+    --db-url='mysql://{{ drupal_db_user }}:{{ drupal_db_password }}@{{ drupal_db_host }}/{{ drupal_db_name}}'
+    --site-name={{ drupal_domain }}
+    --account-name={{ drupal_user }}
+    --account-pass={{ drupal_password }}"
+  args:
+    chdir: '{{ nginx_vhost_root }}/{{ drupal_domain }}/httpdocs/web/sites/default'
+  environment:
+    HOME: "/root"
+  when: ansible_distribution_release == 'trusty' or ansible_distribution == 'CentOS'
+
+- name: Enforce permissions
+  file:
+    path: '{{ drupal_docroot }}'
+    state: directory
+    owner: '{{ nginx_vhost_user }}'
+    group: '{{ nginx_vhost_user }}'
+    recurse: yes

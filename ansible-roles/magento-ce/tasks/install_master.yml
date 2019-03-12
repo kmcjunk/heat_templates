@@ -1,0 +1,162 @@
+---
+- name: Install list of packages
+  apt: name={{item}} state=installed
+  with_items:
+       - php-fpm
+       - php-gd
+       - php-dom
+       - php-mcrypt
+       - php-curl
+       - php-intl
+       - php-mbstring
+       - php-zip
+       - php-bcmath
+       - php-soap
+       - php-mysql
+       - nginx
+
+- name: Download Composer Installer
+  get_url:
+    url: 'https://getcomposer.org/installer'
+    dest: '/tmp/composer'
+
+- name: Install Composer
+  shell: 'cat /tmp/composer | php'
+  args:
+    chdir: '/tmp'
+  environment:
+    HOME: '/root'
+
+- name: Move Composer to /usr/local/bin
+  copy:
+    src: '/tmp/composer.phar'
+    dest: '/usr/local/bin/composer'
+    mode: '0755'
+
+- name: move over nginx vhost config
+  template:
+    src: Common/vhost.conf.j2
+    dest: /etc/nginx/sites-available/{{ magento_vhost_domain }}
+
+- name: Create symbolic link 
+  file:
+    src: "/etc/nginx/sites-available/{{ magento_vhost_domain }}"
+    dest: "/etc/nginx/sites-enabled/{{ magento_vhost_domain }}"
+    state: link
+
+- name: Start service nginx, if not started
+  service:
+    name: nginx
+    state: started
+
+- name: move over php.ini's
+  template:
+    src: Common/php.ini.j2
+    dest: /etc/php/7.0/fpm
+
+- name: move over php.ini's
+  template:
+    src: Common/php.ini.j2
+    dest: /etc/php/7.0/cli
+
+- name: Start service php-fpm, if not started
+  service:
+    name: php7.0-fpm
+    state: started
+
+- name: Set repo.magento.com composer keys
+  shell: 'composer config --global http-basic.repo.magento.com  b2f5cba61c010a8eb9e563dc7f031db2 842ab5320d751c878cdc488f3e5ddf6a'
+  environment:
+    HOME: "/root"
+
+- name: download magento with composer
+  shell: 'composer create-project --repository=https://repo.magento.com/ magento/project-community-edition=2.2.7 {{ magento_document_root }}'
+  environment:
+    HOME: "/root"
+
+- name: Run Magento Installer
+  command: 'php bin/magento setup:install --language="en_US" --timezone="{{ tz }}" --db-host={{ mysql_host_ip }} --db-name={{ magento_db_name }} --db-user={{ magento_db_user }} --db-password={{ magento_db_password }} --base-url=http://{{ magento_vhost_domain }}  --use-rewrites="1"  --admin-firstname={{ magento_admin_fname }} --admin-lastname={{ magento_admin_lname }} --admin-email={{ magento_admin_email }} --admin-user={{ magento_admin_user }} --admin-password={{ magento_admin_pass }} --currency=USD'
+  args:
+    chdir: "{{ magento_document_root }}"
+
+- name: Ensure Magento User exists
+  user:
+    name: '{{ magento_sftp_user }}'
+    uid: '{{ magento_sftp_user_id }}'
+    home: '{{ magento_sftp_user_home }}'
+    password: '{{ magento_sftp_password|password_hash("sha512") }}'
+    shell: '/bin/bash'
+    update_password: always
+    state: present
+
+- name: Configure File Level Permissions
+  command: 'find . -type f -exec chmod 644 {} ";"'
+  args:
+    chdir: '{{ magento_document_root }}'
+  register: file_perm_change
+  changed_when: file_perm_change.stdout
+
+- name: Configure Directory Level Permissions
+  command: 'find . -type d -exec chmod 755 {} ";"'
+  args:
+    chdir: '{{ magento_document_root }}'
+  register: file_perm_change
+  changed_when: file_perm_change.stdout
+
+- name: Configure Directory Level Permissions for var
+  command: 'find ./var -type d -exec chmod 777 {} ";"'
+  args:
+    chdir: '{{ magento_document_root }}'
+  register: file_perm_change
+  changed_when: file_perm_change.stdout
+
+- name: Configure Directory Level Permissions for media
+  command: 'find ./pub/media -type d -exec chmod 777 {} ";"'
+  args:
+    chdir: '{{ magento_document_root }}'
+  register: file_perm_change
+  changed_when: file_perm_change.stdout
+
+- name: Configure Directory Level Permissions for static
+  command: 'find ./pub/media -type d -exec chmod 777 {} ";"'
+  args:
+    chdir: '{{ magento_document_root }}'
+  register: file_perm_change
+  changed_when: file_perm_change.stdout
+
+- name: Configure Directory Level Permissions for static
+  command: 'chmod 777 ./app/etc'
+  args:
+    chdir: '{{ magento_document_root }}'
+  register: file_perm_change
+  changed_when: file_perm_change.stdout
+
+- name: Configure File and Directory Ownership
+  command: 'chown -R www-data:www-data {{ magento_document_root }}'
+  args:
+    chdir: '{{ magento_document_root }}'
+  register: file_perm_change
+  changed_when: file_perm_change.stdout
+
+- name: Set acl sftp user
+  command: 'setfacl -Rdm u:magento:rwx {{ magento_document_root }}'
+  register: file_perm_change
+  changed_when: file_perm_change.stdout
+
+- name: Create Cron Job
+  cron:
+    name: "Magento Cron Script"
+    user: '{{ magento_sftp_user }}'
+    minute: "*/5"
+    job: '/bin/sh {{ magento_document_root }}/cron.sh >/dev/null 2>&1'
+    state: present
+
+- name: Start Redis
+  service:
+    name: redis-server
+    state: started
+
+- name: Restart nginx
+  service:
+    name: nginx
+    state: restarted

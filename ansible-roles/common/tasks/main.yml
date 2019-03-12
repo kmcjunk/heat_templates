@@ -1,0 +1,35 @@
+---
+- include_vars: "{{ item }}"
+  with_items:
+    - "{{ ansible_os_family }}.yml"
+
+- name: Install packages for Debian systems
+  apt:
+    pkg: "{{ item }}"
+    state: present
+    update_cache: yes
+  with_items: "{{ common_packages }}"
+  when: ansible_os_family == "Debian"
+
+- name: Install packages Redhat systems
+  yum:
+    pkg: "{{ item }}"
+    state: present
+  with_items: "{{ common_packages }}"
+  when: ansible_os_family == "RedHat"
+
+    
+- name: Enable NTPD
+  service:
+    name: "{{ ntp_service }}"
+    state: started
+    enabled: yes
+
+- name: Sync Hardware Clock
+  command: /sbin/hwclock --systohc
+
+- name: Restart rsyslog
+  service:
+    name: rsyslog
+    state: restarted
+    enabled: yes

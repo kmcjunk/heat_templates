@@ -1,0 +1,135 @@
+heat_template_version: 2015-10-15
+
+description: |
+ #### MySQL Secondary
+
+parameter_groups:
+
+parameters:
+  server_name:
+    type: string
+    default: example-0
+  server_flavor:
+    type: string
+    default: 4 GB General Purpose v1
+    constraints:
+    - allowed_values:
+      - 1 GB General Purpose v1
+      - 2 GB General Purpose v1
+      - 4 GB General Purpose v1
+      - 8 GB General Purpose v1
+  server_image:
+    type: string
+    default: Ubuntu 16.04 LTS (Xenial Xerus) (PVHVM) (Orchestration)
+    label: Server Image
+    description: Image to be used for all servers in this stack
+    constraints:
+    - allowed_values:
+      - Ubuntu 16.04 LTS (Xenial Xerus) (PVHVM) (Orchestration)
+      - CentOS 7 (PVHVM) (Orchestration)
+    immutable: true
+  ssh_key:
+    type: string
+    label: SSH Key
+    description: SSH Key for LAMP Slave Nodes
+  parent_stack_id:
+    type: string
+    default: None
+  mysql_slave_master:
+    type: string
+  mysql_node_index:
+    type: string
+  mysql_root_password:
+    type: string
+  mysql_slave_user:
+    type: string
+  mysql_slave_password:
+    type: string
+  mysql_role:
+    type: string
+  ansible_source:
+    type: string
+    default: http://catalog.rs-heat.com/ansible-roles/ansible-roles.tar.gz
+    label: Ansible Tarball
+    description: The Ansible Roles will be pulled from the location provided
+    immutable: true
+resources:
+  upload_role_config:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      outputs:
+      - name: results
+      config:
+        str_replace:
+          template: |
+            #!/bin/bash
+            set -e
+            mkdir -p /etc/ansible/roles
+            wget ansible_source -O /tmp/ansible-roles.tar.gz 2>&1
+            tar -xf /tmp/ansible-roles.tar.gz --strip-components=1 -C /etc/ansible/roles
+          params:
+            ansible_source: { get_param: ansible_source }
+
+  mysql_config:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ansible
+      config: |
+        ---
+        - name: Install and configure MySQL
+          hosts: localhost
+          connection: local
+          roles:
+          - common
+          - mysql
+          - firewall
+  deploy_roles:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      signal_transport: TEMP_URL_SIGNAL
+      config:
+        get_resource: upload_role_config
+      server:
+        get_resource: mysql_server
+  deploy_mysql:
+    type: OS::Heat::SoftwareDeployment
+    depends_on: deploy_roles
+    properties:
+      signal_transport: TEMP_URL_SIGNAL
+      input_values:
+        tz: "America/Chicago"
+        mysql_slave_master: { get_param: mysql_slave_master }
+        mysql_node_index: { get_param: mysql_node_index }
+        mysql_root_password: { get_param: mysql_root_password }
+        mysql_slave_user: { get_param: mysql_slave_user }
+        mysql_slave_password: { get_param: mysql_slave_password}
+        mysql_role: { get_param: mysql_role }
+        firewall_global_rules: [ "0.0.0.0,0,22,tcp", "0.0.0.0,0,3306,tcp"]
+      config:
+        get_resource: mysql_config
+      server:
+        get_resource: mysql_server
+  mysql_server:
+    type: OS::Nova::Server
+    properties:
+      name: { get_param: "server_name" }
+      key_name: { get_param: "ssh_key" }
+      image: { get_param: server_image }
+      flavor: { get_param: server_flavor }
+      software_config_transport: POLL_TEMP_URL
+      config_drive: true
+      user_data_format: SOFTWARE_CONFIG
+      metadata:
+        rax-heat: { get_param: "parent_stack_id" }
+        build_config: "monitoring_defaults"
+
+outputs:
+  public_ip:
+    description: Server Public IP
+    value:
+      get_attr: [mysql_server, accessIPv4]
+  private_ip:
+    description: Server Private IP
+    value:
+      get_attr: [mysql_server, networks, private, 0]

@@ -1,0 +1,28 @@
+---
+php_modules:
+  - libapache2-mod-php
+  - php
+  - php-fpm
+  - php-dev
+  - php-imap
+  - php-gd
+  - php-mysql
+  - php-xmlrpc
+
+php_modules_pecl:
+  - lzf
+  - redis
+  - memcache
+
+php_modules_config:
+  - src: php.ini.j2
+    dest: '/etc/php.ini'
+  - src: opcache.ini.j2
+    dest: "{{ php_modules_config_root }}/opcache.ini"
+  - src: redis.ini.j2
+    dest: "{{ php_modules_config_root }}/redis.ini' }"
+
+php_modules_config_root: '/etc/php/7.2/mods-available'
+
+php_modules_enable:
+  - redis
